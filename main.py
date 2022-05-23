@@ -1,11 +1,37 @@
 from curses import flash
 from distutils.log import debug
-import imp
-
-
+from email.policy import default
+import enum
+from unittest import result 
+ 
 from flask import Flask, redirect, render_template, request, session
+from flask_sqlalchemy import SQLAlchemy
+import os
 
 app = Flask(__name__)
+app.secret_key="super secret key" 
+db_path = os.path.join(os.path.dirname(__file__), 'app.db')
+
+app.config["SQLALCHEMY_DATABASE_URI"]=f'sqlite:///{db_path}'
+db = SQLAlchemy(app)
+
+class User(db.Model): 
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False) 
+    tasks = db.relationship("Task",backref="user",lazy=True)
+
+class TaskStatus(enum.Enum):
+    COMPLETED = "Completed"
+    CLOSED = "Closed"
+    OPENED ="Opened"
+
+class Task(db.Model): 
+    id = db.Column(db.Integer, primary_key=True)
+    task = db.Column(db.String(100), nullable=False) 
+    status = db.Column(db.Enum(TaskStatus),default=TaskStatus.OPENED)
+    user_id = db.Column(db.Integer,db.ForeignKey("user.id"),nullable=True)
+
+db.create_all()
 
 @app.route("/")
 def index():
@@ -14,21 +40,32 @@ def index():
 
 @app.route("/task")
 def task():
-    logged_user=session["username"]  
-    return render_template("task.html",username=logged_user)
+    logged_user=session["user_id"]  
+    task_list = Task.query.filter_by(user_id=logged_user)
+    return render_template("task.html",username=logged_user,task=task_list)
 
 @app.route("/logout",methods=["POST"])
 def logout():
 
     if request.method=="POST":
-        session["username"]=None
+        session["user_id"]=None
         return redirect("/")
      
 @app.route("/login", methods=["POST","GET"])
 def login():
 
     if request.method=="POST":
-        session["username"]=request.form["username"]
+        username=request.form["username"]
+        existing_user=User.query.filter_by(username=username).first()
+        print(existing_user)
+
+        if existing_user is None:
+            user=User(username=username)
+            db.session.add(user)
+            db.session.commit()
+            existing_user = user
+        
+        session["user_id"]=existing_user.id
         return redirect("/task") 
     return render_template("login.html")
     
